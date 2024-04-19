@@ -1,36 +1,32 @@
 import numpy as np
 import faiss
-from langchain_community.document_loaders import PyPDFLoader
+import PyPDF2
 from transformers import BertTokenizer, BertModel
 import torch
 import streamlit as st
 
-# Define a function to compute text embeddings
 def text_to_vector(text, tokenizer, model):
     inputs = tokenizer(text, return_tensors='pt', max_length=512, truncation=True)
     outputs = model(**inputs)
     return outputs.last_hidden_state.mean(1).detach().numpy().flatten()
 
-# Initialize the BERT tokenizer and model
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 model = BertModel.from_pretrained('bert-base-uncased')
 
-# Set up the Streamlit interface
 st.title("PDF Content Search with Q&A Functionality")
 uploaded_files = st.file_uploader("Choose PDF files", accept_multiple_files=True, type='pdf')
 
 if uploaded_files:
     all_text = []
-    # Process each file
     for uploaded_file in uploaded_files:
         try:
-            loader = PyPDFLoader(file_path=uploaded_file)
-            document = loader.load()
-            # Extract text from each page
-            for page in document:
-                page_text = page.page_content.strip()
-                if page_text:
-                    all_text.append(page_text)
+            # Read PDF file from in-memory data
+            reader = PyPDF2.PdfReader(uploaded_file)
+            num_pages = len(reader.pages)
+            file_text = []
+            for page in range(num_pages):
+                file_text.append(reader.pages[page].extract_text())
+            all_text.extend(file_text)
         except Exception as e:
             st.error(f"Failed to process {uploaded_file.name}: {str(e)}")
 
@@ -42,11 +38,10 @@ if uploaded_files:
     vectors = np.array([text_to_vector(segment, tokenizer, model) for segment in segments])
     index.add(vectors)
     
-    # Question and Answer functionality
-    question = st.text_input("Enter your question:", "What is <your question> about?")
+    question = st.text_input("Enter your question:", "")
     if st.button("View Answer"):
         query_vector = text_to_vector(question, tokenizer, model)
-        D, I = index.search(np.array([query_vector]), 1)  # Retrieve the closest segment
+        D, I = index.search(np.array([query_vector]), 1)
         if I.size > 0:
             result_index = I.flatten()[0]
             answer = segments[result_index]
